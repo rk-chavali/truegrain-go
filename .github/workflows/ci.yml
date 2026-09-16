@@ -60,12 +60,18 @@ jobs:
       # caller asking for a number does not inherit a BigQuery client, an OIDC
       # verifier and an MCP server. That is only true while it has no
       # dependencies, so it is tested rather than asserted in the README.
+      # `go list -m all` names every module in the graph. For a module with no
+      # requirements that is this module and nothing else.
+      #
+      # An earlier version of this check walked `go list -deps` instead and
+      # failed on `vendor/golang.org/x/net/...`, which are the standard
+      # library's own vendored packages rather than a dependency of ours.
       - name: The module graph is this module alone
         run: |
-          deps=$(go list -deps ./... | grep -v '^github.com/rk-chavali/truegrain-go' | grep '\.' || true)
-          if [ -n "$deps" ]; then
-            echo "this module pulls in non-standard-library packages:"
-            echo "$deps"
+          modules=$(go list -m all | grep -v '^github.com/rk-chavali/truegrain-go$' || true)
+          if [ -n "$modules" ]; then
+            echo "this module requires other modules:"
+            echo "$modules"
             exit 1
           fi
           echo "standard library only"
