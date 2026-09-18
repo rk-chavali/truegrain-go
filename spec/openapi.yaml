@@ -350,6 +350,63 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/Refused" }
 
+  /v1/audit:
+    get:
+      tags: [governance]
+      operationId: listAudit
+      summary: Read the decisions this engine recently made
+      description: |
+        Every decision the engine made, newest first: what was allowed, what
+        was refused for correctness, what was denied for access, and what
+        failed. This is the window an operator reads to answer "why did that
+        agent give up", which nothing else can answer.
+
+        Not served unless an operator names who may read it. The record
+        contains every caller's activity, which discloses what other teams
+        query and which fields are protected, so an engine with no reader
+        configured answers 404: the capability is absent rather than withheld.
+        A caller who is authenticated but not a named reader gets 403.
+
+        This is a bounded in-memory window, not the whole record. An engine
+        started with an audit file keeps everything there; this is what it can
+        still show you without shelling into the container.
+
+        Carries no filter values, no compiled SQL and no result rows, for the
+        same reason the audit file does not.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Most recent events to return.
+          schema: { type: integer, minimum: 1, maximum: 200, default: 200 }
+        - name: decision
+          in: query
+          required: false
+          description: Return only this decision. `refused` is the usual one.
+          schema:
+            type: string
+            enum: [allowed, refused, denied, compiled, error]
+      responses:
+        "200":
+          description: Recorded decisions, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, count]
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEvent" }
+                  count: { type: integer }
+                  note:
+                    type: string
+                    description: Says that this is a window rather than the whole record.
+        "400": { $ref: "#/components/responses/Refused" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Refused" }
+        "404": { $ref: "#/components/responses/Refused" }
+
 
 components:
   securitySchemes:
@@ -375,6 +432,67 @@ components:
           schema: { $ref: "#/components/schemas/Refusal" }
 
   schemas:
+    AuditEvent:
+      type: object
+      description: |
+        One decision, as recorded. `refused` and `denied` are deliberately
+        separate: denied is access, meaning this caller may not read something,
+        and refused is correctness, meaning nobody can be told this accurately
+        and the hint names a question that can be answered. Reporting them
+        together would count every fan-out as an access incident.
+      required: [time, decision]
+      properties:
+        time: { type: string, format: date-time }
+        identity:
+          type: string
+          description: Who asked. `anonymous` on an engine without authentication.
+        model_name: { type: string }
+        model_version: { type: string }
+        namespace: { type: string }
+        metrics:
+          type: array
+          items: { type: string }
+        dimensions:
+          type: array
+          items: { type: string }
+        decision:
+          type: string
+          enum: [allowed, refused, denied, compiled, error]
+        refusal_code:
+          type: string
+          description: Which refusal, for a decision of `refused`.
+        retry:
+          type: string
+          enum: [modify, later, never]
+          description: What the caller should do about a refusal.
+        reason:
+          type: string
+          description: The refusal in the engine's own words, as the caller received it.
+        hint:
+          type: string
+          description: What would answer instead. The actionable half of a refusal.
+        denied_fields:
+          type: array
+          description: Semantic fields refused, on a denial. Never returned to the denied caller.
+          items: { type: string }
+        sql_hash:
+          type: string
+          description: Identifies the compiled statement without disclosing it.
+        dialect: { type: string }
+        job_id:
+          type: string
+          description: The warehouse's own identifier, so two logs can be joined.
+        row_count: { type: integer }
+        bytes_billed:
+          type: integer
+          format: int64
+          description: |
+            What the warehouse says the query cost. Absent means not reported
+            rather than free: DuckDB bills nobody and reports nothing.
+        duration_ms: { type: integer, format: int64 }
+        error:
+          type: string
+          description: The failure, for a decision of `error`.
     Refusal:
       type: object
       required: [code, reason, retry]
