@@ -306,7 +306,7 @@ type AuditEvent struct {
 	Namespace    string    `json:"namespace,omitempty"`
 	Metrics      []string  `json:"metrics,omitempty"`
 	Dimensions   []string  `json:"dimensions,omitempty"`
-	Decision Decision `json:"decision"`
+	Decision     Decision  `json:"decision"`
 	// RefusalCode names which refusal, for a Decision of DecisionRefused. The
 	// same codes [Refused] carries, so one switch serves both.
 	RefusalCode string `json:"refusal_code,omitempty"`
