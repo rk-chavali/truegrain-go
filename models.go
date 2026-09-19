@@ -343,3 +343,148 @@ const (
 	DecisionCompiled Decision = "compiled"
 	DecisionError    Decision = "error"
 )
+
+// ---------- what the engine says about itself ----------
+
+// Severity grades a [Finding].
+type Severity string
+
+const (
+	// SeverityError is something that will break a query.
+	SeverityError Severity = "error"
+	// SeverityWarning is something that will not break today.
+	SeverityWarning Severity = "warning"
+)
+
+// Finding is one thing the warehouse disagrees with the model about.
+type Finding struct {
+	Severity Severity `json:"severity"`
+	// Dataset and Field name it in model terms, Source in warehouse terms,
+	// because the person reading this has to look in both places.
+	Dataset string `json:"dataset"`
+	Field   string `json:"field,omitempty"`
+	Source  string `json:"source,omitempty"`
+	Message string `json:"message"`
+	// Hint says what to do, when there is something to do.
+	Hint string `json:"hint,omitempty"`
+}
+
+// Diagnosis is what the warehouse says about the model right now.
+//
+// It reports rather than refuses. A model can be wrong in ways that do not
+// matter yet, and which of those to act on is a person's decision.
+type Diagnosis struct {
+	// OK is false when a finding would break a query. It is not the same as
+	// having no findings.
+	OK            bool      `json:"ok"`
+	TablesChecked int       `json:"tables_checked"`
+	Findings      []Finding `json:"findings"`
+	// Skipped explains why nothing was checked, when nothing was. An empty
+	// Diagnosis with Skipped set is the engine saying it could not look, not
+	// saying everything is fine.
+	Skipped string `json:"skipped,omitempty"`
+}
+
+// DoctorRun is one scheduled check.
+type DoctorRun struct {
+	At            time.Time `json:"at"`
+	OK            bool      `json:"ok"`
+	TablesChecked int       `json:"tables_checked"`
+	Findings      int       `json:"findings"`
+	// Error is set when the check could not run at all, which is a different
+	// thing from running and finding something wrong.
+	Error string `json:"error,omitempty"`
+	// ModelVersion ties the result to what was being served, so a run from
+	// before a reload is not read as evidence about the model after it.
+	ModelVersion string `json:"model_version,omitempty"`
+}
+
+// DoctorHistory is what the scheduled check has seen, oldest first.
+type DoctorHistory struct {
+	// EverySeconds is the configured interval, which is how a reader tells a
+	// gap from a check that has simply not come round yet.
+	EverySeconds int `json:"every_seconds"`
+	// Drifted counts runs that completed and found the warehouse changed.
+	Drifted int         `json:"drifted"`
+	Runs    []DoctorRun `json:"runs"`
+}
+
+// TestCase is one assertion and what became of it.
+type TestCase struct {
+	Name    string `json:"name"`
+	Passed  bool   `json:"passed"`
+	Skipped bool   `json:"skipped"`
+	// Reason says why, for a case that failed or was skipped.
+	Reason     string `json:"reason,omitempty"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+// TestReport is the result of every case in the suite.
+type TestReport struct {
+	OK      bool `json:"ok"`
+	Passed  int  `json:"passed"`
+	Failed  int  `json:"failed"`
+	Skipped int  `json:"skipped"`
+	// Withheld counts cases this credential may not run, because they would
+	// execute against the warehouse. Reported rather than dropped: a suite
+	// that quietly checked half of what it claimed is worse than one that
+	// failed. A caller reading OK without reading this is being misled.
+	Withheld int        `json:"withheld"`
+	Results  []TestCase `json:"results"`
+}
+
+// Policy is what the engine enforces. It says nothing about who is allowed
+// what, deliberately.
+type Policy struct {
+	Governance Governance `json:"governance"`
+	// EnforcementNotes state the gaps in plain language. Read these: an
+	// engine running allow-all says so here rather than letting a reader
+	// assume a gate exists because the product has one.
+	EnforcementNotes []string `json:"enforcement_notes,omitempty"`
+}
+
+// PolicyExplanation answers "why can I not group by that column".
+//
+// For the calling identity only. An engine that reported what somebody else
+// can see would publish the policy it was configured to enforce, so there is
+// no field here for another identity and no endpoint that takes one.
+type PolicyExplanation struct {
+	Metric   string `json:"metric"`
+	Identity string `json:"identity,omitempty"`
+	// Readable are the dimensions this caller may group the metric by,
+	// qualified and sorted.
+	Readable   []string   `json:"readable"`
+	Governance Governance `json:"governance"`
+}
+
+// Change is what one request compiled to before and after a reload.
+type Change struct {
+	Before string `json:"before"`
+	After  string `json:"after"`
+}
+
+// Diff is what the last reload moved.
+//
+// Compared on compiled SQL rather than on model text, because that is where a
+// silent correctness incident lives: the model still validates, the tests
+// still pass, and every dashboard quietly moves. Renaming a description does
+// not appear here; changing a join, a grain or an expression does.
+type Diff struct {
+	Changed bool `json:"changed"`
+	// From and To are the model versions either side of the reload.
+	From    string   `json:"from"`
+	To      string   `json:"to"`
+	Added   []string `json:"added,omitempty"`
+	Removed []string `json:"removed,omitempty"`
+	// Altered maps a request label to its SQL before and after.
+	Altered map[string]Change `json:"altered,omitempty"`
+}
+
+// What a [Client.Reload] was told.
+const (
+	// ReloadReading means the engine has started re-reading its source.
+	ReloadReading = "reading"
+	// ReloadAlreadyRunning means a sync was already in flight. It is not an
+	// error: the caller is getting what they asked for.
+	ReloadAlreadyRunning = "already running"
+)

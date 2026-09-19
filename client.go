@@ -34,6 +34,13 @@ var Operations = map[string]string{
 	"getJob":          "Job",
 	"cancelJob":       "CancelJob",
 	"listAudit":       "Audit",
+	"doctor":          "Doctor",
+	"doctorHistory":   "DoctorHistory",
+	"runTests":        "RunTests",
+	"policy":          "Policy",
+	"explainPolicy":   "ExplainPolicy",
+	"diff":            "Diff",
+	"reload":          "Reload",
 }
 
 // DefaultTimeout bounds a single HTTP call.
