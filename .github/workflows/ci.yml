@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The range this module supports is the range it is tested on rather
+        # than whatever the maintainer happens to run.
+        go: ["1.22", "1.23", "1.24", "1.25"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # Includes the contract tests, which fail when the engine gains an
+      # operation this client cannot call.
+      - name: Test
+        run: go test ./... -count=1
+
+      - name: No tests were skipped
+        run: |
+          skipped=$(go test ./... -count=1 -v 2>&1 | grep -c '^--- SKIP' || true)
+          if [ "$skipped" != "0" ]; then
+            echo "$skipped test(s) skipped; the contract suite must not be silently absent"
+            exit 1
+          fi
+
+  no-dependencies:
+    name: Depends only on the standard library
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      # The point of this module being separate from the engine is that a
+      # caller asking for a number does not inherit a BigQuery client, an OIDC
+      # verifier and an MCP server. That is only true while it has no
+      # dependencies, so it is tested rather than asserted in the README.
+      # `go list -m all` names every module in the graph. For a module with no
+      # requirements that is this module and nothing else.
+      #
+      # An earlier version of this check walked `go list -deps` instead and
+      # failed on `vendor/golang.org/x/net/...`, which are the standard
+      # library's own vendored packages rather than a dependency of ours.
+      - name: The module graph is this module alone
+        run: |
+          modules=$(go list -m all | grep -v '^github.com/rk-chavali/truegrain-go$' || true)
+          if [ -n "$modules" ]; then
+            echo "this module requires other modules:"
+            echo "$modules"
+            exit 1
+          fi
+          echo "standard library only"
+
+      # go.mod is the file a consumer reads. Keeping it tidy means it never
+      # grows a require block nobody noticed.
+      - name: go.mod is tidy
+        run: |
+          go mod tidy
+          if ! git diff --quiet -- go.mod go.sum 2>/dev/null; then
+            echo "go mod tidy changed the module files:"
+            git --no-pager diff -- go.mod go.sum
+            exit 1
+          fi
