@@ -33,6 +33,7 @@ var Operations = map[string]string{
 	"submitJob":       "Submit",
 	"getJob":          "Job",
 	"cancelJob":       "CancelJob",
+	"listAudit":       "Audit",
 }
 
 // DefaultTimeout bounds a single HTTP call.
@@ -210,6 +211,47 @@ func (c *Client) Dimensions(ctx context.Context, metric string) ([]Dimension, er
 		Dimensions []Dimension `json:"dimensions"`
 	}
 	return out.Dimensions, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// ---------- the record ----------
+
+// Audit reads the decisions this engine recently made, newest first.
+//
+// The window an operator reads to answer "why did that agent give up". Pass
+// [DecisionRefused] for the usual case; an empty decision returns every kind.
+// limit is clamped to the engine's maximum of 200; pass 0 for the default.
+//
+// Not served unless an operator has named who may read it, because the record
+// discloses what other teams query and which fields are protected. An engine
+// with no reader configured answers 404 and a caller who is authenticated but
+// not a named reader gets 403, both of which arrive here as a [*Refused].
+func (c *Client) Audit(ctx context.Context, decision Decision, limit int) ([]AuditEvent, error) {
+	q := url.Values{}
+	if decision != "" {
+		switch decision {
+		case DecisionAllowed, DecisionRefused, DecisionDenied, DecisionCompiled, DecisionError:
+		default:
+			// Caught here rather than sent, so a typo names the mistake instead
+			// of coming back as a 400 from a round trip.
+			return nil, fmt.Errorf("truegrain: %q is not a decision; use one of "+
+				"allowed, refused, denied, compiled, error", decision)
+		}
+		q.Set("decision", string(decision))
+	}
+	if limit > 0 {
+		if limit > 200 {
+			limit = 200
+		}
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/v1/audit"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out struct {
+		Events []AuditEvent `json:"events"`
+	}
+	return out.Events, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
 // ---------- query ----------

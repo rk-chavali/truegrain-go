@@ -1,5 +1,7 @@
 package truegrain
 
+import "time"
+
 // Cell is one value in a result row. The engine returns JSON, so a cell is
 // whatever JSON gave: a string, a float64, a bool, or nil.
 type Cell any
@@ -286,3 +288,58 @@ func (j *Job) Result(rows [][]Cell) *Result {
 		Dialect:      j.Dialect,
 	}
 }
+
+// AuditEvent is one decision the engine recorded.
+//
+// Decision is the field to branch on, and Refused and Denied are deliberately
+// separate: denied is access, meaning this caller may not read something, and
+// refused is correctness, meaning nobody can be told this accurately. Counting
+// them together would report every fan-out as an access incident.
+//
+// Carries no filter values, no compiled SQL and no result rows. SQLHash
+// identifies the statement without disclosing it.
+type AuditEvent struct {
+	Time         time.Time `json:"time"`
+	Identity     string    `json:"identity,omitempty"`
+	ModelName    string    `json:"model_name,omitempty"`
+	ModelVersion string    `json:"model_version,omitempty"`
+	Namespace    string    `json:"namespace,omitempty"`
+	Metrics      []string  `json:"metrics,omitempty"`
+	Dimensions   []string  `json:"dimensions,omitempty"`
+	Decision Decision `json:"decision"`
+	// RefusalCode names which refusal, for a Decision of DecisionRefused. The
+	// same codes [Refused] carries, so one switch serves both.
+	RefusalCode string `json:"refusal_code,omitempty"`
+	// Retry is what the caller was told to do.
+	Retry  Retry  `json:"retry,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	Hint   string `json:"hint,omitempty"`
+	// DeniedFields are the semantic fields withheld, on a denial. Never
+	// returned to the denied caller, only to a reader of the record.
+	DeniedFields []string `json:"denied_fields,omitempty"`
+	SQLHash      string   `json:"sql_hash,omitempty"`
+	Dialect      string   `json:"dialect,omitempty"`
+	// JobID is the warehouse's own identifier, so two logs can be joined.
+	JobID    string `json:"job_id,omitempty"`
+	RowCount int    `json:"row_count,omitempty"`
+	// BytesBilled is what the warehouse says the query cost. Zero means not
+	// reported rather than free: DuckDB bills nobody and reports nothing.
+	BytesBilled int64  `json:"bytes_billed,omitempty"`
+	DurationMS  int64  `json:"duration_ms,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// Decision is what the engine did about one request. Named rather than a bare
+// string so a caller switching on it cannot pass a value the engine never
+// produces, the same reason [Retry] is a type.
+type Decision string
+
+// The decisions an [AuditEvent] can carry. Refused and Denied are separate on
+// purpose: see [AuditEvent].
+const (
+	DecisionAllowed  Decision = "allowed"
+	DecisionRefused  Decision = "refused"
+	DecisionDenied   Decision = "denied"
+	DecisionCompiled Decision = "compiled"
+	DecisionError    Decision = "error"
+)
