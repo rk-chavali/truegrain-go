@@ -117,6 +117,34 @@ type Health struct {
 	SupportedGrains []string `json:"supported_grains,omitempty"`
 	// EnforcementNotes states the gaps in plain language. Read these.
 	EnforcementNotes []string `json:"enforcement_notes,omitempty"`
+	// Origin is where the served model came from, and is nil when the engine
+	// read it from a path rather than following a repository. Nil is the
+	// answer to "is this deployment under version control", so check it
+	// before reading through it.
+	Origin *Origin `json:"origin,omitempty"`
+}
+
+// Origin identifies the commit a served model came from.
+//
+// This is how [Client.Reload] is confirmed. Reload names no commit, because a
+// sync is not instant and reporting one before the swap happened would be a
+// claim a pipeline then asserts as fact. So a deploy is finished when Health
+// reports the commit you merged, and not before.
+//
+// Carries no credential. A repository URL with one in it is refused at
+// startup rather than stored here and redacted on the way out.
+type Origin struct {
+	// Repository is the clone URL, without credentials.
+	Repository string `json:"repository,omitempty"`
+	// Ref is the branch, tag or commit asked for, absent when the remote's
+	// default branch is followed. A ref moves; read Commit to know what
+	// actually answered.
+	Ref string `json:"ref,omitempty"`
+	// Commit is the revision serving right now.
+	Commit string `json:"commit,omitempty"`
+	// Subdirectory is the directory inside the repository holding the
+	// workspace.
+	Subdirectory string `json:"subdirectory,omitempty"`
 }
 
 // DialectSecurity reports what the target warehouse enforces by itself,
